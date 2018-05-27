@@ -21,34 +21,34 @@
 #include "hal_uart.h"
 
 #include "DHT11.h"
-#include "ds18b20.h"
-//#include"bh1750.h"
-//#include "pm25.h"
 #include "nwk_globals.h"
 
 
 //---------------------------------------------------------------------
-//æ ‡å‡†ç‰ˆä¸åŒçš„ç»ˆç«¯éœ€è¦ä¿®æ”¹æ­¤ID,ç”¨äºè¯†åˆ«åè°ƒå™¨å‘è¿‡æ¥çš„æ•°æ®ï¼ŒIDç›¸åŒåˆ™å¤„ç†
-static uint16 EndDeviceID = 0x0001 ; //ç»ˆç«¯IDï¼Œé‡è¦
+//±ê×¼°æ²»Í¬µÄÖÕ¶ËĞèÒªĞŞ¸Ä´ËID,ÓÃÓÚÊ¶±ğĞ­µ÷Æ÷·¢¹ıÀ´µÄÊı¾İ£¬IDÏàÍ¬Ôò´¦Àí
+static uint16 EndDeviceID = 0x0001 ; //ÖÕ¶ËID£¬ÖØÒª
 //---------------------------------------------------------------------
 
-//å®šä¹‰èŠ‚ç‚¹åŠŸèƒ½ç”¨ä½œä¼ æ„Ÿå™¨æˆ–æ°”ä½“+èœ‚é¸£å™¨,è¿˜æ˜¯æ­¥è¿›ç”µæœº
-#define WSN_SENSOR     //ç”¨ä½œ4ä¸ªé‡‡é›†èŠ‚ç‚¹
+//¶¨Òå½Úµã¹¦ÄÜÓÃ×÷´«¸ĞÆ÷»òÆøÌå+·äÃùÆ÷,»¹ÊÇ²½½øµç»ú
+#define WSN_SENSOR     //ÓÃ×÷4¸ö²É¼¯½Úµã
+//#define WSN_BEEP     //ÆøÌå+·äÃùÆ÷ EndDeviceID=5
+//#define WSN_STEP     //²½½øµç»ú    EndDeviceID=6
 
- 
-#define Sitting_ROOM  //EndDeviceID=2
- 
 
- 
 
-#ifdef Sitting_ROOM 
-uint16 Read_CO(void);
-#endif
+#define LAMP_PIN     P0_5  //¶¨ÒåP0.5¿ÚÎª¼ÌµçÆ÷ÊäÈë¶Ë
+#define GAS_PIN      P0_6  //¶¨ÒåP0.6¿ÚÎªÑÌÎí´«¸ĞÆ÷µÄÊäÈë¶Ë  
+#define BEEP_PIN     P0_7  //¶¨ÒåP0.7¿ÚÎª·äÃùÆ÷µÄÊä³ö¶Ë  
 
- 
+#define A1 P0_4            //¶¨Òå²½½øµç»úÁ¬½Ó¶Ë¿Ú
+#define B1 P0_5
+#define C1 P0_6
+#define D1 P0_7
+
+
 #define UART0        0x00
 #define MAX_NODE     0x04
-#define UART_DEBUG   0x00 //è°ƒè¯•å®,é€šè¿‡ä¸²å£è¾“å‡ºåè°ƒå™¨å’Œç»ˆç«¯çš„IEEEã€çŸ­åœ°å€
+#define UART_DEBUG   0x00 //µ÷ÊÔºê,Í¨¹ı´®¿ÚÊä³öĞ­µ÷Æ÷ºÍÖÕ¶ËµÄIEEE¡¢¶ÌµØÖ·
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr)[0])
 
 #define TIMER1_RUN()  T1CTL|=0X03
@@ -126,7 +126,7 @@ const endPointDesc_t SerialApp_epDesc =
 /*********************************************************************
 * GLOBAL VARIABLES
 */
-uint8 AppTitle[20] = "ALD WSN-system"; //åº”ç”¨ç¨‹åºåç§°
+uint8 AppTitle[20] = "ALD WSN-system"; //Ó¦ÓÃ³ÌĞòÃû³Æ
 uint8 SerialApp_TaskID;    // Task ID for internal task/event processing.
 
 
@@ -152,11 +152,18 @@ static devStates_t SerialApp_NwkState;
 static afAddrType_t SerialApp_TxAddr;
 static uint8 SerialApp_MsgID;
 
-uint8 NodeData[MAX_NODE][5];         //ç»ˆç«¯æ•°æ®ç¼“å†²åŒº 0=æ¸©åº¦ 1=æ¹¿åº¦ 2=æ°”ä½“ 3=ç¯
+uint8 NodeData[MAX_NODE][5];         //ÖÕ¶ËÊı¾İ»º³åÇø 0=ÎÂ¶È 1=Êª¶È 2=ÆøÌå 3=µÆ
 uint8 TxBuffer[128];
 
- 
- 
+//µç»úÏà¹ØµÄ±äÁ¿
+uint8 LedState = 0;
+uint8 ucEdDir = 1;      //ÖÕ¶Ë1ÎªÕı×ª  2Îª·´×ª
+uint8 ucDirection = 1;  //1ÎªÕı×ª  2Îª·´×ª
+uint8 ucSpeed = 2;      //ËÙ¶È2-10Ö®¼ä
+uint8 DataBuf[3];
+
+uchar phasecw[4] ={0x80,0x40,0x20,0x10};//Õı×ª µç»úµ¼Í¨ÏàĞò D-C-B-A
+uchar phaseccw[4]={0x10,0x20,0x40,0x80};//·´×ª µç»úµ¼Í¨ÏàĞò A-B-C-D
 /*********************************************************************
 * LOCAL FUNCTIONS
 */
@@ -174,7 +181,8 @@ static void PrintAddrInfo(uint16 shortAddr, uint8 *pIeeeAddr);
 static void AfSendAddrInfo(void);
 static void SerialApp_SendPeriodicMessage( void );
 static uint8 GetDataLen(uint8 fc);
- 
+static uint8 GetLamp( void );
+static uint8 GetGas( void );
 static uint8 XorCheckSum(uint8 * pBuf, uint8 len);
 uint8 SendData(uint8 addr, uint8 FC);
 
@@ -184,79 +192,13 @@ void init_port(void);
 void start_pwm(void) ;
 __interrupt void _IRQ_timer1(void);
 
+//WSN_STEP
+static void MotorData(uchar data);
+static void MotorCW(void);
+static void MotorCCW(void);
+static void MotorStop(void);
 
-unsigned char alarm=100 ;
-
-//-å®šæ—¶å™¨åŠŸèƒ½å¼€å‘-------------------------------------------------------
-
- unsigned char Scount=0 ;//è¯¥æ•°æ®æœ€å¤§å€¼225
-  unsigned int Ncount=0 ;//ä¸Šé™250
-  unsigned char MiddleScount=0 ;//ä¸Šé™225
-  unsigned int N=0 ;//N æœ€å¤§å€¼ä¸è¶…è¿‡13500
- unsigned char roytimerflag;
- 
- unsigned char Scount2=0 ;//è¯¥æ•°æ®æœ€å¤§å€¼225
- unsigned char MiddleScount2=0 ;//ä¸Šé™225
- unsigned char roytimerflag2;
-//--ç»“æŸå®šæ—¶å™¨åŠŸèƒ½-----------------------------------------------------------------------
- 
- 
-#if defined(ZDO_COORDINATOR) 
- 
- #else   
- 
-  
-void irCaptureGpioInit(void) ;
-void timer3CaputureInit(void);
-void timer1CaptureConfig(void); 
-void T1_ISR(void);
-
-
-//GPIOé…ç½®æˆå¤ç”¨åŠŸèƒ½ï¼ŒåŒæ—¶è®¾ç½®P1_0ä¸ºè¾“å…¥ã€‚
-void irCaptureGpioInit(void)
-{
- P1SEL |= 0x03; //P0_0å’Œ1 ->1ä½¿ç”¨å¤–è®¾åŠŸèƒ½
- P1DIR &= ~0x03;//P0_0å’Œ1 -->0 è®¾ç½®ä¸ºè¾“å…¥åŠŸèƒ½
-
- PERCFG |= 0x40;//å®šæ—¶å™¨1çš„å¤‡ç”¨ä½ç½®2(ç¬¬äºŒè¡Œ) 
- P2SEL |= 0x00;//è®¾ç½®å®šæ—¶å™¨1ä¼˜å…ˆ
- //P1IEN |= 0x01;//1ç«¯å£P1.7åˆ°P1.0ä¸­æ–­ä½¿èƒ½ï¼Œ(1ï¼š ä¸­æ–­ä½¿èƒ½)
- 
- 
- //æµ‹è¯•ç”¨
- 
-  P1SEL &= ~0x08; //P13ä¸ä½¿ç”¨å¤–è®¾
- P1DIR |= 0x08;//P013 è®¾ç½®ä¸ºè¾“å‡ºåŠŸèƒ½
- 
-}
-
-void timer3CaputureInit(void)
-{
-
- T1CTL |= 0x01; //7:4 æ— æ•ˆ 3:2=00 æ ‡è®°é¢‘ç‡/1ï¼Œ1Mçš„æ—¶é’Ÿ 1:0=01 è‡ªç”±è¿è¡Œ0-65535åå¤è®¡æ•°,æœ€åä¸¤ä½0x00ï¼Œæš‚åœè¿è¡Œ
- T1CCTL2|=0x41; //å®šæ—¶å™¨1 é€šé“2 æ•è·/æ¯”è¾ƒæ§åˆ¶ ( 0 RFæ•è· )(1 é€šé“2ä¸­æ–­å±è”½)( 000é€šé“2æ¯”è¾ƒæ¨¡å¼é€‰æ‹© )(0 æ•è·æ¨¡å¼)(  01 ä¸Šå‡æ²¿æ•è·)=0100 0001
- 
- T1CCTL1|=0x41;//å®šæ—¶å™¨1 é€šé“1,P1_1;
-   
- IEN1 |= 0x02; //T1ä¸­æ–­ä½¿èƒ½ 
-
- IEN0 |= 0x80;//å¼€æ€»ä¸­æ–­
-}
-
-void timer1CaptureConfig(void)
-{
- irCaptureGpioInit();
- timer3CaputureInit();
-}
-
-#endif
-
-
-//--ç»“æŸå®šæ—¶å™¨åŠŸèƒ½å¼€å‘---------------------------------------------
-
-
-
- 
+static void Delay_MS(unsigned int Time);
 #ifdef WSN_STEP
 static void InitStepMotor(void);
 #endif
@@ -274,25 +216,47 @@ void SerialApp_Init( uint8 task_id )
   halUARTCfg_t uartConfig;
   
 #ifdef WSN_SENSOR
-  P0SEL &= ~0x20;         //è®¾ç½®P0.5å£ä¸ºæ™®é€šIO
-  P0DIR |= 0x20;          //è®¾ç½®P0.5ä¸ºè¾“å‡º
- 
-  
-   P0SEL &= ~0x80;         //P0_7é…ç½®æˆé€šç”¨io
-  
+  P0SEL &= ~0x20;         //ÉèÖÃP0.5¿ÚÎªÆÕÍ¨IO
+  P0DIR |= 0x20;          //ÉèÖÃP0.5ÎªÊä³ö
+  LAMP_PIN = 1;           //¸ßµçÆ½¼ÌµçÆ÷¶Ï¿ª;µÍµçÆ½¼ÌµçÆ÷ÎüºÏ
+  P0SEL &= ~0x40;         //ÉèÖÃP0.6ÎªÆÕÍ¨IO¿Ú
+  P0DIR &= ~0x40;         //P0.6¶¨ÒåÎªÊäÈë¿Ú
+  P0SEL &= ~0x80;         //P0_7ÅäÖÃ³ÉÍ¨ÓÃio
 #elif defined WSN_BEEP
-   
+  P0SEL &= ~0x40;         //ÉèÖÃP0.6ÎªÆÕÍ¨IO¿Ú
+  P0DIR &= ~0x40;         //P0.6¶¨ÒåÎªÊäÈë¿Ú
+  start_pwm();            //ÅäÖÃT1Êä³öPWM
+  TIMER1_STOP();          //Ä¬ÈÏ¹Ø±Õ·äÃùÆ÷
+  EndDeviceID = 0x0005;   //ÖÕ¶Ë5µÄÄÚ²¿±àºÅ  
 #elif defined WSN_STEP
-   
+  InitStepMotor();        //³õÊ¼»¯µç»úIOÒı½Å
+  EndDeviceID = 0x0006;   //ÖÕ¶Ë6µÄÄÚ²¿±àºÅ  
 #endif
 
 #if defined(ZDO_COORDINATOR) 
   EndDeviceID = 0x0000; 
- #else   
-  timer1CaptureConfig(); 
 #endif
   
- 
+  Color    = BLACK; //Ç°¾°É«
+  Color_BK = GREEN; //±³¾°É«
+  osal_memset(AppTitle, 0, 20);
+  //LCDÉÏÏÔÊ¾Ó¦ÓÃ³ÌĞòµÄ±êÌâ
+  if(EndDeviceID == 0x0001)
+    osal_memcpy(AppTitle, "ALD WSN-Node01", osal_strlen("ALD WSN-Node01"));
+  else if(EndDeviceID == 0x0002)
+    osal_memcpy(AppTitle, "ALD WSN-Node02", osal_strlen("ALD WSN-Node02"));
+  else if(EndDeviceID == 0x0003)
+    osal_memcpy(AppTitle, "ALD WSN-Node03", osal_strlen("ALD WSN-Node03"));
+  else if(EndDeviceID == 0x0004)
+    osal_memcpy(AppTitle, "ALD WSN-Node04", osal_strlen("ALD WSN-Node04"));
+  else if(EndDeviceID == 0x0005)
+    osal_memcpy(AppTitle, "ALD WSN-BEEP05", osal_strlen("ALD WSN-BEEP05"));    
+  else if(EndDeviceID == 0x0006)
+    osal_memcpy(AppTitle, "stepping motor", osal_strlen("stepping motor")); 
+  else
+    osal_memcpy(AppTitle, "ALD WSN-system", osal_strlen("ALD WSN-system")); 
+  
+  LCD_write_EN_string(64-7*osal_strlen((char *)AppTitle)/2,3,AppTitle); //ÏÔÊ¾±êÌâ
   
   SerialApp_TaskID = task_id;
   //SerialApp_RxSeq = 0xC3;
@@ -310,14 +274,12 @@ void SerialApp_Init( uint8 task_id )
   uartConfig.callBackFunc         = SerialApp_CallBack;
   HalUARTOpen (UART0, &uartConfig);
   
-  //å¼€å¯ä¸Šä¼ æ•°æ®å®šæ—¶å™¨
-  osal_start_timerEx( SerialApp_TaskID,
-                         SERIALAPP_SEND_PERIODIC_EVT,
-                         SERIALAPP_SEND_PERIODIC_TIMEOUT );
-  
-    P0SEL &= ~0x10; 
-   P0DIR &= ~0x10;
-   
+  //#if defined ( LCD_SUPPORTED )
+  //  HalLcdWriteString( "SerialApp", HAL_LCD_LINE_2 );
+  //#endif
+  //HalUARTWrite(UART0, "Init", 4);
+  //ZDO_RegisterForZDOMsg( SerialApp_TaskID, End_Device_Bind_rsp );
+  //ZDO_RegisterForZDOMsg( SerialApp_TaskID, Match_Desc_rsp );
 }
 
 /*********************************************************************
@@ -360,21 +322,21 @@ UINT16 SerialApp_ProcessEvent( uint8 task_id, UINT16 events )
             || (SerialApp_NwkState == DEV_ROUTER)
               || (SerialApp_NwkState == DEV_END_DEVICE) )
         {
-#if defined(ZDO_COORDINATOR) //åè°ƒå™¨é€šè¿‡ä¸²å£è¾“å‡ºè‡ªèº«çŸ­åœ°å€ã€IEEE  
+#if defined(ZDO_COORDINATOR) //Ğ­µ÷Æ÷Í¨¹ı´®¿ÚÊä³ö×ÔÉí¶ÌµØÖ·¡¢IEEE  
           Broadcast_DstAddr.addrMode = (afAddrMode_t)AddrBroadcast;
           Broadcast_DstAddr.endPoint = SERIALAPP_ENDPOINT;
           Broadcast_DstAddr.addr.shortAddr = 0xFFFF;
 #if UART_DEBUG           
           PrintAddrInfo( NLME_GetShortAddr(), aExtendedAddress + Z_EXTADDR_LEN - 1);
 #endif 
-          //åˆå§‹åŒ–ç¯çš„çŠ¶æ€ï¼Œ1ä¸ºç†„ç­çŠ¶æ€ï¼Œ0ä¸ºç‚¹äº®
+          //³õÊ¼»¯µÆµÄ×´Ì¬£¬1ÎªÏ¨Ãğ×´Ì¬£¬0ÎªµãÁÁ
           NodeData[0][3] = 1;
           NodeData[1][3] = 1;
           NodeData[2][3] = 1;
           NodeData[3][3] = 1;
-#else                        //ç»ˆç«¯æ— çº¿å‘é€çŸ­åœ°å€ã€IEEE   
+#else                        //ÖÕ¶ËÎŞÏß·¢ËÍ¶ÌµØÖ·¡¢IEEE   
           AfSendAddrInfo();
-#ifdef WSN_BEEP              //èœ‚é¸£å™¨å’Œæ°”ä½“å®éªŒæ—¶è‡ªåŠ¨æ£€æµ‹æ°”ä½“å‘ç°å¼‚å¸¸å°±æŠ¥è­¦
+#ifdef WSN_BEEP              //·äÃùÆ÷ºÍÆøÌåÊµÑéÊ±×Ô¶¯¼ì²âÆøÌå·¢ÏÖÒì³£¾Í±¨¾¯
           osal_start_timerEx( SerialApp_TaskID, SERIALAPP_SEND_PERIODIC_EVT,
                              SERIALAPP_SEND_PERIODIC_TIMEOUT );
           //(SERIALAPP_SEND_PERIODIC_TIMEOUT + (osal_rand() & 0x00FF)) );
@@ -393,7 +355,7 @@ UINT16 SerialApp_ProcessEvent( uint8 task_id, UINT16 events )
     return ( events ^ SYS_EVENT_MSG );
   }
   
-  //åœ¨æ­¤äº‹ä»¶ä¸­å¯ä»¥å®šæ—¶å‘åè°ƒå™¨å‘é€èŠ‚ç‚¹ä¼ æ„Ÿå™¨å‚æ•°ä¿¡æ¯
+  //ÔÚ´ËÊÂ¼şÖĞ¿ÉÒÔ¶¨Ê±ÏòĞ­µ÷Æ÷·¢ËÍ½Úµã´«¸ĞÆ÷²ÎÊıĞÅÏ¢
   if ( events & SERIALAPP_SEND_PERIODIC_EVT )
   {
     SerialApp_SendPeriodicMessage();
@@ -431,35 +393,29 @@ UINT16 SerialApp_ProcessEvent( uint8 task_id, UINT16 events )
 */
 void SerialApp_HandleKeys( uint8 shift, uint8 keys )
 { 
-  if ( keys & HAL_KEY_SW_6 ) //æŒ‰S1é”®å¯åŠ¨æˆ–åœæ­¢ç»ˆç«¯å®šæ—¶ä¸ŠæŠ¥æ•°æ® 
+  if ( keys & HAL_KEY_SW_6 ) //°´S1¼üÆô¶¯»òÍ£Ö¹ÖÕ¶Ë¶¨Ê±ÉÏ±¨Êı¾İ 
   {
-    
-    alarm=alarm+10 ;
-    if(alarm>180) alarm=180 ;
-    
 #ifdef WSN_SENSOR
     if(SendFlag == 0)
     {
       SendFlag = 1;
-    //  HalLedSet ( HAL_LED_1, HAL_LED_MODE_ON );
-
+      HalLedSet ( HAL_LED_1, HAL_LED_MODE_ON );
+      osal_start_timerEx( SerialApp_TaskID,
+                         SERIALAPP_SEND_PERIODIC_EVT,
+                         SERIALAPP_SEND_PERIODIC_TIMEOUT );
     }
     else
     {      
-    //  SendFlag = 0;
-   //   HalLedSet ( HAL_LED_1, HAL_LED_MODE_OFF );
-   //   osal_stop_timerEx(SerialApp_TaskID, SERIALAPP_SEND_PERIODIC_EVT);
+      SendFlag = 0;
+      HalLedSet ( HAL_LED_1, HAL_LED_MODE_OFF );
+      osal_stop_timerEx(SerialApp_TaskID, SERIALAPP_SEND_PERIODIC_EVT);
     }
 #endif
   }
   
-  if ( keys & HAL_KEY_SW_1 ) //æŒ‰S2
+  if ( keys & HAL_KEY_SW_1 ) //°´S2
   {
-    //LAMP_PIN = ~LAMP_PIN;
-    
-    alarm=alarm-10 ;
-    
-    if(alarm<30) alarm=30 ;
+    LAMP_PIN = ~LAMP_PIN;
   }
   
 }
@@ -471,53 +427,90 @@ void SerialApp_ProcessMSGCmd( afIncomingMSGPacket_t *pkt )
   uint8 delay;
   uint8 afRxData[30]={0};
   
-  //æŸ¥è¯¢å•ä¸ªç»ˆç«¯ä¸Šæ‰€æœ‰ä¼ æ„Ÿå™¨çš„æ•°æ® 3A 00 01 02 39 23  å“åº”ï¼š3A 00 01 02 00 00 00 00 xor 23
+  //²éÑ¯µ¥¸öÖÕ¶ËÉÏËùÓĞ´«¸ĞÆ÷µÄÊı¾İ 3A 00 01 02 39 23  ÏìÓ¦£º3A 00 01 02 00 00 00 00 xor 23
   switch ( pkt->clusterId )
   {
     // A message with a serial data block to be transmitted on the serial port.
   case SERIALAPP_CLUSTERID:
     osal_memcpy(afRxData, pkt->cmd.Data, pkt->cmd.DataLength);
-    switch(afRxData[0]) //ç®€å•åè®®å‘½ä»¤å­—è§£æ
+    switch(afRxData[0]) //¼òµ¥Ğ­ÒéÃüÁî×Ö½âÎö
     {
 #if defined(ZDO_COORDINATOR)
-    case 0x3B:  //æ”¶åˆ°ç»ˆç«¯æ— çº¿å‘è¿‡æ¥çš„çŸ­åœ°å€å’ŒIEEEåœ°å€,é€šè¿‡ä¸²å£è¾“å‡ºæ˜¾ç¤º      
+    case 0x3B:  //ÊÕµ½ÖÕ¶ËÎŞÏß·¢¹ıÀ´µÄ¶ÌµØÖ·ºÍIEEEµØÖ·,Í¨¹ı´®¿ÚÊä³öÏÔÊ¾      
       shortAddr=(afRxData[1]<<8)|afRxData[2];
       pIeeeAddr = &afRxData[3];
- 
+#if UART_DEBUG
+      PrintAddrInfo(shortAddr, pIeeeAddr + Z_EXTADDR_LEN - 1);
+#endif   
       break;
     case 0x3A:	
-      if(afRxData[3] == 0x02) //æ”¶åˆ°ç»ˆç«¯ä¼ è¿‡æ¥çš„ä¼ æ„Ÿå™¨æ•°æ®å¹¶ä¿å­˜
+      if(afRxData[3] == 0x02) //ÊÕµ½ÖÕ¶Ë´«¹ıÀ´µÄ´«¸ĞÆ÷Êı¾İ²¢±£´æ
       {  
         NodeData[afRxData[2]-1][0] = afRxData[4];
         NodeData[afRxData[2]-1][1] = afRxData[5];
         NodeData[afRxData[2]-1][2] = afRxData[6];
         NodeData[afRxData[2]-1][3] = afRxData[7];
-      //  NodeData[afRxData[2]-1][4] = 0x00;
+        NodeData[afRxData[2]-1][4] = 0x00;
       }
       
-            
+#if UART_DEBUG
+      HalUARTWrite (UART0, NodeData[afRxData[3]-1], 4); //µ÷ÊÔÊ±Í¨¹ı´®¿ÚÊä³ö
+      HalUARTWrite (UART0, "\n", 1);
+#endif            
       break;
 #else  
-    case 0x3A:  //å¼€å…³ç¯è®¾å¤‡          
-      if(afRxData[3] == 0x0A || afRxData[3] == 0x0B || afRxData[3] == 0x0C) //æ§åˆ¶ç»ˆç«¯          
+    case 0x3A:  //¿ª¹ØµÆÉè±¸          
+      if(afRxData[3] == 0x0A || afRxData[3] == 0x0B || afRxData[3] == 0x0C) //¿ØÖÆÖÕ¶Ë          
       {  
         if(EndDeviceID == afRxData[2] || afRxData[2]==0xFF)
         {
           if(afRxData[4] == 0)
           {
-           // LAMP_PIN = 0;
+            LAMP_PIN = 0;
             HalLedSet ( HAL_LED_2, HAL_LED_MODE_OFF );
           }
           else
           {
-          //  LAMP_PIN = 1;
+            LAMP_PIN = 1;
             HalLedSet ( HAL_LED_2, HAL_LED_MODE_ON );
           }
         }
         break;
       }	
- 
- 
+      else if(afRxData[3] == 0x07)      //·äÃùÆ÷ ¹¦ÄÜÂëÎª07
+      {
+        if(EndDeviceID == afRxData[2] || afRxData[2] == 0xFF)  //·äÃùÆ÷ EndDeviceIDÎª05
+        {
+          if(afRxData[4] == 0)
+          {
+            TIMER1_STOP();               //ÊÕµ½Ğ­µ÷·¢³öµÄ·äÃùÆ÷²»ÏìµÄÖ¸Áî
+            HalLedSet ( HAL_LED_2, HAL_LED_MODE_OFF );
+          }
+          else
+          {
+            TIMER1_RUN();               //ÊÕµ½Ğ­µ÷·¢³öµÄ·äÃùÆ÷ÏìµÄÖ¸Áî
+            HalLedSet ( HAL_LED_2, HAL_LED_MODE_ON );
+          }
+        } 
+      }
+      else if(afRxData[3] == 0x08)    //µç»ú ¹¦ÄÜÂëÎª08
+      {
+        if(EndDeviceID == afRxData[2] || afRxData[2] == 0xFF)//µç»ú EndDeviceIDÎª06
+        {
+          ucEdDir = afRxData[4];      //±£´æĞı×ª·½Ïò¸øµ÷ËÙÓÃ
+          MotorStop();                //Í£Ö¹×ª¶¯
+          if(afRxData[4] == 0x02)   
+          {
+            for(i=0;i<2000;i++)
+              MotorCW();              //Ë³Ê±Õë×ª¶¯
+          }
+          else if(afRxData[4] == 0x01)//×ó×ª±ê¼Ç 
+          {
+            for(i=0;i<2000;i++)
+              MotorCCW();             //ÄæÊ±Õë×ª¶¯
+          }
+        }
+      }
 #endif
       default :
         break;
@@ -549,13 +542,13 @@ uint8 SendData(uint8 addr, uint8 FC)
   uint8 ret, i, index=4;
   
   TxBuffer[0] = 0x3A;
-  TxBuffer[1] = alarm;
+  TxBuffer[1] = 0x00;
   TxBuffer[2] = addr;
   TxBuffer[3] = FC;
   
   switch(FC)
   {
-  case 0x01: //æŸ¥è¯¢æ‰€æœ‰ç»ˆç«¯ä¼ æ„Ÿå™¨çš„æ•°æ®
+  case 0x01: //²éÑ¯ËùÓĞÖÕ¶Ë´«¸ĞÆ÷µÄÊı¾İ
     for (i=0; i<MAX_NODE; i++)
     {
       osal_memcpy(&TxBuffer[index], NodeData[i], 4);
@@ -567,38 +560,12 @@ uint8 SendData(uint8 addr, uint8 FC)
     HalUARTWrite(UART0, TxBuffer, index+2);
     ret = 1;
     break;
-  case 0x02: //æŸ¥è¯¢å•ä¸ªç»ˆç«¯ä¸Šæ‰€æœ‰ä¼ æ„Ÿå™¨çš„æ•°æ®
+  case 0x02: //²éÑ¯µ¥¸öÖÕ¶ËÉÏËùÓĞ´«¸ĞÆ÷µÄÊı¾İ
     osal_memcpy(&TxBuffer[index], NodeData[addr-1], 4);
     index += 4;
     TxBuffer[index] = XorCheckSum(TxBuffer, index);
     TxBuffer[index+1] = 0x23; 
     
-    //ç”¨äºæŠ¥è­¦
-    if(TxBuffer[6]>alarm|TxBuffer[10]>alarm|TxBuffer[14]>alarm){
-      
-      
-    //    P1SEL &= ~0x02; //P13ä¸ä½¿ç”¨å¤–è®¾
-// P1DIR |= 0x02;//P013 è®¾ç½®ä¸ºè¾“å‡ºåŠŸèƒ½
- 
-      
-                //   P1_1 =1;
-                //   if()
-                    
-                  //   TxBuffer[1] = TxBuffer[1]|0x01;
-        
- 
-    }
-  else
-  {
-    //
-      P1SEL &= ~0x02; //P13ä¸ä½¿ç”¨å¤–è®¾
-// P1DIR |= 0x02;//P013 è®¾ç½®ä¸ºè¾“å‡ºåŠŸèƒ½
-                     //   P1_1 =0;
-                     //    TxBuffer[1] = TxBuffer[1]&0x01 ;
-        
-
-    
-  }
     HalUARTWrite(UART0, TxBuffer, index+2);		
     ret = 1;
     break;   
@@ -626,7 +593,6 @@ static void SerialApp_Send(void)
   uint8 checksum=0;
 
   if (!SerialApp_TxLen && 
-      //ä¸²å£æ¥æ”¶æ•°æ®
       (SerialApp_TxLen = HalUARTRead(UART0, SerialApp_TxBuf, SERIAL_APP_TX_MAX)))
   {
     if (SerialApp_TxLen)
@@ -640,10 +606,10 @@ static void SerialApp_Send(void)
         len += 4;
         checksum = XorCheckSum(SerialApp_TxBuf, len);
 
-        //æ¥æ”¶æ•°æ®æ­£ç¡®è¿”å›ç›¸åº”æ•°æ®
+        //½ÓÊÕÊı¾İÕıÈ··µ»ØÏàÓ¦Êı¾İ
         if(checksum == SerialApp_TxBuf[len] && SerialApp_TxBuf[len+1] == 0x23)
         {
-          if(FC == 7 || FC == 8 || FC == 0x0A || FC == 0x0B || FC == 0x0C) //æ§åˆ¶ç»ˆç«¯
+          if(FC == 7 || FC == 8 || FC == 0x0A || FC == 0x0B || FC == 0x0C) //¿ØÖÆÖÕ¶Ë
           {                            
             if (afStatus_SUCCESS == AF_DataRequest(&Broadcast_DstAddr,
                                                    (endPointDesc_t *)&SerialApp_epDesc,
@@ -651,13 +617,13 @@ static void SerialApp_Send(void)
                                                    len+2, SerialApp_TxBuf,
                                                    &SerialApp_MsgID, 0, AF_DEFAULT_RADIUS))
             {
-              if(FC == 0x0A) //å¦‚æœå¼€å¯è‡ªåŠ¨åˆ·æ–°åˆ™ä¸éœ€è¦è¿™æ­¥æ“ä½œ
-                NodeData[addr-1][3] = SerialApp_TxBuf[len-1];  //æ›´æ–°ç¼“å†²åŒºç¯çš„çŠ¶æ€
+              if(FC == 0x0A) //Èç¹û¿ªÆô×Ô¶¯Ë¢ĞÂÔò²»ĞèÒªÕâ²½²Ù×÷
+                NodeData[addr-1][3] = SerialApp_TxBuf[len-1];  //¸üĞÂ»º³åÇøµÆµÄ×´Ì¬
               
-              HalUARTWrite(UART0, SerialApp_TxBuf, len+2); //æ— çº¿å‘é€æˆåŠŸååŸæ ·è¿”å›ç»™ä¸Šä½æœº	
+              HalUARTWrite(UART0, SerialApp_TxBuf, len+2); //ÎŞÏß·¢ËÍ³É¹¦ºóÔ­Ñù·µ»Ø¸øÉÏÎ»»ú	
               //osal_set_event(SerialApp_TaskID, SERIALAPP_SEND_EVT);
             }
-            else  //æš‚æ—¶æ²¡å‘ç°é”™è¯¯ï¼Œå…³é—­ç»ˆç«¯å‘é€ä¹Ÿæ­£å¸¸ã€‚æ— çº¿å‘é€å¤±è´¥åå°†æ•°æ®ä½å’Œæ ¡éªŒä½ç½®0è¿”ç»™ä¸Šä½æœº	
+            else  //ÔİÊ±Ã»·¢ÏÖ´íÎó£¬¹Ø±ÕÖÕ¶Ë·¢ËÍÒ²Õı³£¡£ÎŞÏß·¢ËÍÊ§°Üºó½«Êı¾İÎ»ºÍĞ£ÑéÎ»ÖÃ0·µ¸øÉÏÎ»»ú	
             {
               SerialApp_TxBuf[len-1] = 0x00;
               SerialApp_TxBuf[len] = 0x00;
@@ -666,7 +632,7 @@ static void SerialApp_Send(void)
           }
           else
           {
-            SendData(addr, FC);   //æŸ¥è¯¢æ“ä½œ
+            SendData(addr, FC);   //²éÑ¯²Ù×÷
           }
         }
       }
@@ -722,12 +688,10 @@ static void SerialApp_CallBack(uint8 port, uint8 event)
 
 
 //--------------------------------------------------------------------------------------
-//æŸ¥è¯¢å•ä¸ªç»ˆç«¯ä¸Šæ‰€æœ‰ä¼ æ„Ÿå™¨çš„æ•°æ® 3A 00 01 02 XX 23  å“åº”ï¼š3A 00 01 02 00 00 00 00 xor 23
+//²éÑ¯µ¥¸öÖÕ¶ËÉÏËùÓĞ´«¸ĞÆ÷µÄÊı¾İ 3A 00 01 02 XX 23  ÏìÓ¦£º3A 00 01 02 00 00 00 00 xor 23
 void SerialApp_SendPeriodicMessage( void )
 {
   uint8 SendBuf[11]={0};
-  unsigned int dustvalue;
- 
 
 #ifdef WSN_SENSOR  
   SendBuf[0] = 0x3A;                          
@@ -735,26 +699,11 @@ void SerialApp_SendPeriodicMessage( void )
   SendBuf[2] = LO_UINT16( EndDeviceID );
   SendBuf[3] = 0x02;                       //FC
   
- //------------------------------------------------------------- 
- #ifdef Sitting_ROOM 
-  
-  
-    float tempFloat = floatReadDs18B20();                //å¸¦1ä½å°æ•°æ¸©åº¦æ•°æ®
-    tempFloat =tempFloat*10 ;
- 
-  SendBuf[4] = ((int)tempFloat>>8)&0xff;  
-  SendBuf[5] = (int)tempFloat&0xff ;
-  
-  SendBuf[6] =(uint8)MiddleScount2;  //CO value
-   
- 
- 
-    
-
- #endif
- 
- //------------------------------------------------------------
-   
+  DHT11();                //»ñÈ¡ÎÂÊª¶È
+  SendBuf[4] = wendu;  
+  SendBuf[5] = shidu;  
+  SendBuf[6] = GetGas();  //»ñÈ¡ÆøÌå´«¸ĞÆ÷µÄ×´Ì¬  
+  SendBuf[7] = GetLamp(); //»ñµÃµÆµÄ×´Ì¬
   SendBuf[8] = XorCheckSum(SendBuf, 9);
   SendBuf[9] = 0x23;
   
@@ -777,21 +726,33 @@ void SerialApp_SendPeriodicMessage( void )
   }
 #endif
   
-
+#ifdef WSN_BEEP
+  SendBuf[0] = GetGas();  //»ñÈ¡ÆøÌå´«¸ĞÆ÷µÄ×´Ì¬ 0ÎªÓĞº¦ÆøÌå   1ÎªÕı³£
+  
+  //ÖÕ¶Ë5Ö´ĞĞ·äÃùÆ÷²Ù×÷   ·äÃùÆ÷¶¯×÷µçÆ½ 1: Ïì £¬0: ²»Ïì
+  if(SendBuf[0] == 0 && EndDeviceID == 5)
+  {
+    TIMER1_RUN();      //¼ì²âµ½Òì³£ÆøÌåÊ±·äÃùÆ÷Ïì
+  }
+  else
+  {
+    TIMER1_STOP();    //ÆøÌåÕı³£²»Ïì
+  }    
+#endif
 }
 
 
 #if UART_DEBUG   
-//é€šè¿‡ä¸²å£è¾“å‡ºçŸ­åœ°å€ IEEE
+//Í¨¹ı´®¿ÚÊä³ö¶ÌµØÖ· IEEE
 void PrintAddrInfo(uint16 shortAddr, uint8 *pIeeeAddr)
 {
   uint8 strIeeeAddr[17] = {0};
   char  buff[30] = {0};    
   
-  //è·å¾—çŸ­åœ°å€   
+  //»ñµÃ¶ÌµØÖ·   
   sprintf(buff, "shortAddr:%04X   IEEE:", shortAddr);  
   
-  //è·å¾—IEEEåœ°å€
+  //»ñµÃIEEEµØÖ·
   GetIeeeAddr(pIeeeAddr, strIeeeAddr);
   
   HalUARTWrite (UART0, (uint8 *)buff, strlen(buff));
@@ -829,9 +790,9 @@ void AfSendAddrInfo(void)
   
   shortAddr=NLME_GetShortAddr();
   
-  strBuf[0] = 0x3B;                          //å‘é€åœ°å€ç»™åè°ƒå™¨ å¯ç”¨äºç‚¹æ’­
-  strBuf[1] = HI_UINT16( shortAddr );        //å­˜æ”¾çŸ­åœ°å€é«˜8ä½
-  strBuf[2] = LO_UINT16( shortAddr );        //å­˜æ”¾çŸ­åœ°å€ä½8ä½
+  strBuf[0] = 0x3B;                          //·¢ËÍµØÖ·¸øĞ­µ÷Æ÷ ¿ÉÓÃÓÚµã²¥
+  strBuf[1] = HI_UINT16( shortAddr );        //´æ·Å¶ÌµØÖ·¸ß8Î»
+  strBuf[2] = LO_UINT16( shortAddr );        //´æ·Å¶ÌµØÖ·µÍ8Î»
   
   osal_memcpy(&strBuf[3], NLME_GetExtAddr(), 8);
   
@@ -884,102 +845,146 @@ uint8 GetDataLen(uint8 fc)
   return len;
 }
 
- 
-
-
- 
-//------------------------------------------------------------
-#ifdef Sitting_ROOM 
-uint16 Read_CO(void)
+//»ñµÃP0_5 ¼ÌµçÆ÷Òı½ÅµÄµçÆ½
+uint8 GetLamp( void )
 {
-    uint16 reading = 0;
-  APCFG |= 0x40; //Analog Periferal I/O configuration, set Port0 IO,bit 1 stand for Analog I/O enabled,P0.6
-  ADCCON3 = 0xB6;//10 AVDD5 å¼•è„š  00ï¼š 64 æŠ½å–ç‡(12 ä½ENOB)  0110ï¼š AIN6,å‚è€ƒç”µå‹AVDD5ï¼Œ
-  //bit76:10 reference voltage from AVDD5 pin. bit54:11 stand for 64 æŠ½å–ç‡(17ä½ENOB)
-  //bit3210:AIN6, Selects the channel number of the single conversion
-  while (!(ADCCON1 & 0x80));//bit7:End of conversion. Cleared when ADCH has been read.
-  APCFG &= (0x40 ^ 0xFF); //æŒ‰ä½å¼‚æˆ–ã€‚å¦‚1010^1111=0101ï¼ˆäºŒè¿›åˆ¶ï¼‰,ç›¸å½“äºå¯¹0x40å–åï¼Œå°†æ¨¡æ‹ŸåŠŸèƒ½æ¢æˆæ•°å­—IOåŠŸèƒ½
-  reading = ADCL;
-  reading |= (uint16) (ADCH << 8); 
-  reading >>= 4;
-  return (reading);
+  uint8 ret;
   
+  if(LAMP_PIN == 0)
+    ret = 0;
+  else
+    ret = 1;
+  
+  return ret;
+}
+
+//»ñµÃP0_6 MQ-2ÆøÌå´«¸ĞÆ÷µÄÊı¾İ 0ÎªÓĞº¦ÆøÌå   1ÎªÕı³£
+uint8 GetGas( void )
+{
+  uint8 ret;
+  
+  if(GAS_PIN == 0)
+  {
+    ret = 0;
+  }
+  else
+  {
+    ret = 1;
+  }
+  
+  return ret;
+}
+//-------------------------------------------------------------------
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//#ifdef WSN_BEEP
+//²½½øµç»úÇı¶¯²¿·Ö
+static void MotorData(uchar data)
+{
+  A1 = 1&(data>>4);
+  B1 = 1&(data>>5);
+  C1 = 1&(data>>6);
+  D1 = 1&(data>>7);
+}
+
+//Ë³Ê±Õë×ª¶¯
+static void MotorCW(void)
+{
+  uchar i;
+  for(i=0;i<4;i++)
+  {
+    MotorData(phasecw[i]);
+    Delay_MS(ucSpeed);//×ªËÙµ÷½Ú
+  }
+}
+//ÄæÊ±Õë×ª¶¯
+static void MotorCCW(void)
+{
+  uchar i;
+  for(i=0;i<4;i++)
+  {
+    MotorData(phaseccw[i]);
+    Delay_MS(ucSpeed);//×ªËÙµ÷½Ú
+  }
+}
+
+//Í£Ö¹×ª¶¯
+static void MotorStop(void)
+{
+  MotorData(0x00);
+}
+
+#ifdef WSN_STEP
+//³õÊ¼»¯IO¿Ú³ÌĞò
+static void InitStepMotor(void)
+{
+  P0SEL &= 0x0F;  //P04 05 06 07¶¨ÒåÎªÆÕÍ¨IO
+  P0DIR |= 0xF0;  //P04 05 06 07¶¨ÒåÎªÊä³ö
+  
+  MotorData(0x00);//Í£Ö¹×ª¶¯
 }
 #endif
- 
- #if defined(ZDO_COORDINATOR) 
- 
- #else   
 
- 
- 
+static void Delay_MS(unsigned int Time)// 1msÑÓÊ±
+{
+  char i;
+  
+  while(Time--)
+  {
+    for(i=0;i<100;i++)
+      MicroWait(10);
+  }
+}
+//#endif
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+//-------------------------------------------------------------------
+//Ğ­ÒéÕ»ÀïÊ¹ÓÃtimer 1Êä³öPWM£¬Ê¹ÓÃµÄÊÇÕı¼ÆÊı/µ¹¼ÆÊıÄ£Ê½£¬Õ¼¿Õ±È¿Éµ÷Õû
+void init_port(void)
+{
+  P0SEL |= 0x80;         //ÉèÖÃP0.7¿ÚÎªÍâÉè
+  P0DIR |= 0x80;         //ÉèÖÃP0.7ÎªÊä³ö
+  PERCFG |= 0x40;        //ÉèÖÃ¶¨Ê±Æ÷1 µÄI / O Î»ÖÃ   1£º ±¸ÓÃÎ»ÖÃ2
+  
+  return ;
+}
+
+// ½«»ù×¼Öµ·ÅÈëT1CC0 ¼Ä´æÆ÷, ½«±»±È½ÏÖµ·ÅÈëT1CC3¼Ä´æÆ÷
+// µ±T1CC3ÖĞµÄÖµÓëT1CC0ÖĞµÄÖµÏàµÈÊ±£¬ÔòT1CC3 ÉèÖÃorÇå³ı
+void init_timer(void)
+{
+  T1CC0L = 0xff;         //PWM duty cycle  ÖÜÆÚ
+  T1CC0H = 0x0;
+  
+  T1CC3L = 0x00;        //PWM signal period Õ¼¿Õ±È
+  T1CC3H = 0x00;
+  
+  //µÈÓÚT1CC0ÖĞµÄÊıÖµÊ±ºò£¬Êä³ö¸ßµçÆ½ 1£» µÈÓÚT1CC3ÖĞµÄÊıÖµÊ±ºò£¬Êä³öµÍµçÆ½ 0 
+  //ÆäÊµÕû¸öÕ¼¿Õ±È¾ÍÎª50%  ÎªÁË·äÃùÆ÷Êä³öÁ¬ĞøµÄÏìÉùĞŞ¸ÄÁËÕ¼¿Õ±È
+  T1CCTL3 = 0x34;       
+  T1CTL |= 0x0f;         // divide with 128 and to do i up-down mode
+  return ;
+}
+
+void start_pwm(void) 
+{
+  init_port();
+  init_timer();
+  // IEN1 |=0x02;     //Timer 1 ÖĞ¶ÏÊ¹ÄÜ
+  // EA = 1;          //È«¾ÖÖĞ¶ÏÊ¹ÄÜ
+  // while(1) {;}
+  return ;
+}
+
+//volatile unsigned char count = 0;
+
 #pragma vector=T1_VECTOR
 __interrupt void _IRQ_timer1(void)
 {
-
-  //LastScount = Scount;
- 
- if(T1STAT & (0x04)) //å®šæ—¶å™¨1 é€šé“2 ä¸­æ–­æ ‡å¿—,2ä½
-  {   
-      Scount++;
-  // IRCON = 0x00; //å®šæ—¶å™¨1æ¸…ä¸­æ–­æ ‡å¿—,ä¹Ÿå¯ç”±ç¡¬ä»¶è‡ªåŠ¨å®Œæˆ
-    T1STAT &= ~(0x04);//è¿™ä¸ªå¿…é¡»æ¸…é™¤
-  }
-  if(T1STAT & (0x02)) //å®šæ—¶å™¨1 é€šé“1 ä¸­æ–­æ ‡å¿—,2ä½ P1-1
-  {   
-     Scount2++;
-  // IRCON = 0x00; //å®šæ—¶å™¨1æ¸…ä¸­æ–­æ ‡å¿—,ä¹Ÿå¯ç”±ç¡¬ä»¶è‡ªåŠ¨å®Œæˆ
-    T1STAT &= ~(0x02);//è¿™ä¸ªå¿…é¡»æ¸…é™¤
-  }
-
- if(T1STAT & (0x20)) //å®šæ—¶å™¨1 è®¡æ•°å™¨æº¢å‡ºä¸­æ–­æ ‡å¿—ï¼Œ5ä½
-  {
-     Ncount++;
-      
-    /* 
-   if( Ncount>7320)//(15sé’Ÿ))//ç”¨äºæ»¤æ³¢
-     {
-       if(Ncount/Scount2>732)
-       {
-         MiddleScount2=0 ;
-         Ncount=0 ;
-         Scount2=0 ;
-      }
-    }
- */
-     //2.048ms
-     if(Ncount>=14640)//(30sé’Ÿ)
-      
-     {
-                P1_3 =~P1_3;
-        
-  P1SEL &= ~0x08; //P13ä¸ä½¿ç”¨å¤–è®¾
- P1DIR |= 0x08;//P013 è®¾ç½®ä¸ºè¾“å‡ºåŠŸèƒ½
- 
-       
-       MiddleScount= Scount;
-      
-       Scount=0;
-       
-       Ncount=0;
-       
-       MiddleScount2= Scount2*2;
-       
-       Scount2=0;
-     }
-     
-     
-      //    IRCON = 0x00; //æ¸…ä¸­æ–­æ ‡å¿—,ä¹Ÿå¯ç”±ç¡¬ä»¶è‡ªåŠ¨å®Œæˆ                          
-     T1STAT &=~(0x20);//è¿™ä¸ªå¿…é¡»æ¸…é™¤
-  }  
- 
-
+  //TODO....
 }
-
-  #endif
-
-
-
 //-------------------------------------------------------------------
 
 
